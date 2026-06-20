@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { isSupabaseConfigured, getSession, updateSession } from "@/lib/memory-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +20,15 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+
+    if (!isSupabaseConfigured()) {
+      const session = getSession(id);
+      if (!session) return NextResponse.json({ error: "会话不存在" }, { status: 404 });
+      return NextResponse.json({ success: true, data: session });
+    }
+
     const client = getSupabaseClient();
 
-    // Get session detail
     const { data: session, error: sessionError } = await client
       .from("training_sessions")
       .select("*")
@@ -31,7 +38,6 @@ export async function GET(
     if (sessionError) throw new Error(`查询会话失败: ${sessionError.message}`);
     if (!session) return NextResponse.json({ error: "会话不存在" }, { status: 404 });
 
-    // Get messages
     const { data: messages, error: msgError } = await client
       .from("session_messages")
       .select("id, role, content, step, analysis, created_at")
@@ -40,7 +46,6 @@ export async function GET(
 
     if (msgError) throw new Error(`查询消息失败: ${msgError.message}`);
 
-    // Get analytics
     const { data: analytics, error: analyticsError } = await client
       .from("session_analytics")
       .select("id, step, score, highlights, improvements, dimensions, created_at")
@@ -70,9 +75,22 @@ export async function PUT(
   try {
     const { id } = await params;
     const body: UpdateSessionBody = await request.json();
+
+    if (!isSupabaseConfigured()) {
+      const session = updateSession(id, {
+        current_step: body.current_step,
+        status: body.status,
+        overall_score: body.overall_score,
+        summary: body.summary,
+        messages: body.messages,
+        analytics: body.analytics,
+      });
+      if (!session) return NextResponse.json({ error: "会话不存在" }, { status: 404 });
+      return NextResponse.json({ success: true });
+    }
+
     const client = getSupabaseClient();
 
-    // Update session
     const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (body.current_step !== undefined) updateData.current_step = body.current_step;
     if (body.status !== undefined) updateData.status = body.status;
@@ -86,7 +104,6 @@ export async function PUT(
 
     if (updateError) throw new Error(`更新会话失败: ${updateError.message}`);
 
-    // Save messages if provided
     if (body.messages && body.messages.length > 0) {
       const msgRows = body.messages.map((m) => ({
         session_id: id,
@@ -99,9 +116,7 @@ export async function PUT(
       if (msgError) throw new Error(`保存消息失败: ${msgError.message}`);
     }
 
-    // Save analytics if provided
     if (body.analytics && body.analytics.length > 0) {
-      // Delete old analytics for the same steps
       const steps = body.analytics.map((a) => a.step);
       if (steps.length > 0) {
         for (const step of steps) {
@@ -133,9 +148,12 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const client = getSupabaseClient();
 
-    // Cascade delete will handle messages and analytics
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ success: true });
+    }
+
+    const client = getSupabaseClient();
     const { error } = await client.from("training_sessions").delete().eq("id", id);
     if (error) throw new Error(`删除失败: ${error.message}`);
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { isSupabaseConfigured, createSession, listSessions } from "@/lib/memory-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,11 @@ export async function GET(request: NextRequest) {
     const userId = searchParams.get("user_id") || "demo_user";
     const limit = parseInt(searchParams.get("limit") || "20", 10);
     const offset = parseInt(searchParams.get("offset") || "0", 10);
+
+    if (!isSupabaseConfigured()) {
+      const { data, total } = listSessions(userId, limit, offset);
+      return NextResponse.json({ success: true, data, total });
+    }
 
     const client = getSupabaseClient();
     const { data, error } = await client
@@ -58,6 +64,11 @@ export async function POST(request: NextRequest) {
         { error: "employee_type and employee_name are required" },
         { status: 400 }
       );
+    }
+
+    if (!isSupabaseConfigured()) {
+      const session = createSession(body);
+      return NextResponse.json({ success: true, data: session });
     }
 
     const client = getSupabaseClient();
