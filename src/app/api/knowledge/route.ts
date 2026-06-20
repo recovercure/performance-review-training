@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
       query = query.eq("category", category);
     }
 
-    const { data, error } = query;
+    const { data, error } = await query;
     if (error) throw new Error(`查询失败: ${error.message}`);
 
     return NextResponse.json({ success: true, data: data || [] });
