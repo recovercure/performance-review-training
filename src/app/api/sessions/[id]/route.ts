@@ -14,6 +14,21 @@ interface UpdateSessionBody {
   analytics?: { step: number; score: number; highlights?: string[]; improvements?: string[]; dimensions?: unknown }[];
 }
 
+function normalizeAnalytics(analytics: UpdateSessionBody["analytics"]) {
+  return analytics?.map((item) => ({
+    step: item.step,
+    score: item.score,
+    highlights: item.highlights ?? [],
+    improvements: item.improvements ?? [],
+    dimensions: isDimensionMap(item.dimensions) ? item.dimensions : {},
+  }));
+}
+
+function isDimensionMap(value: unknown): value is Record<string, number> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+    && Object.values(value).every((entry) => typeof entry === "number");
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -83,7 +98,7 @@ export async function PUT(
         overall_score: body.overall_score,
         summary: body.summary,
         messages: body.messages,
-        analytics: body.analytics,
+        analytics: normalizeAnalytics(body.analytics),
       });
       if (!session) return NextResponse.json({ error: "会话不存在" }, { status: 404 });
       return NextResponse.json({ success: true });
@@ -163,3 +178,4 @@ export async function DELETE(
     return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }
+

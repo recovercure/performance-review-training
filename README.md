@@ -1,16 +1,21 @@
 # AI 绩效面谈陪练 Agent
 
-基于 Next.js 16 + shadcn/ui 的全栈应用，帮助管理者通过 AI 模拟练习绩效面谈。
+基于 Next.js 16 + shadcn/ui + LangChain/LangGraph 的全栈应用，帮助管理者通过 AI 模拟练习绩效面谈。
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 环境要求
+
+- Node.js 20+
+- pnpm 9+
+
+### 2. 安装依赖
 
 ```bash
 pnpm install
 ```
 
-### 2. 配置环境变量
+### 3. 配置环境变量
 
 复制 `.env.example` 为 `.env`，填入你的配置：
 
@@ -18,29 +23,37 @@ pnpm install
 cp .env.example .env
 ```
 
-必需的环境变量：
+必需环境变量：
 
 ```env
-# LLM API（兼容 OpenAI 格式）
+# LLM API（兼容 OpenAI 格式，DeepSeek / OpenAI / 任意兼容服务均可）
 LLM_API_KEY=your_api_key
 LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_CHAT_MODEL=deepseek-chat
-LLM_ANALYSIS_MODEL=deepseek-chat
+LLM_CHAT_MODEL=deepseek-chat           # 对话模型（temperature 0.8）
+LLM_ANALYSIS_MODEL=deepseek-chat       # 分析模型（temperature 0.3）
 
-# Supabase 数据库（可选，用于持久化）
+# Supabase 数据库（可选，不配置则使用内存存储）
 SUPABASE_URL=your_supabase_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-### 3. 启动开发服务器
+可选配置：
+
+```env
+# 实现版本切换（默认使用 LangChain/LangGraph 新实现）
+# 设为 false 降级到旧版裸 fetch 实现
+NEXT_PUBLIC_USE_LANGGRAPH=false
+```
+
+### 4. 启动开发服务器
 
 ```bash
 pnpm dev
 ```
 
-打开 [http://localhost:5000](http://localhost:5000) 查看应用。
+浏览器打开 [http://localhost:5000](http://localhost:5000)。
 
-### 4. 构建生产版本
+### 5. 构建生产版本
 
 ```bash
 pnpm build
@@ -52,21 +65,39 @@ pnpm start
 ```
 src/
 ├── app/                      # Next.js App Router
-│   ├── api/                  # API 路由
-│   │   ├── chat/stream/     # AI 对话（SSE 流式）
-│   │   ├── analysis/        # 实时分析评分
+│   ├── api/
+│   │   ├── chat/stream/     # AI 对话（SSE 流式，旧实现）
+│   │   ├── analysis/        # 实时分析评分（旧实现）
+│   │   ├── v2/              # LangChain/LangGraph 新实现
+│   │   │   ├── chat/stream/ # 流式对话 API
+│   │   │   └── analysis/    # 分析 API
 │   │   ├── sessions/        # 会话管理
 │   │   └── knowledge/       # 知识库 CRUD + 搜索
 │   ├── training/            # 训练页面
 │   ├── history/             # 历史记录
 │   └── knowledge/           # 知识库管理
+├── agents/                   # LangChain/LangGraph Agent
+│   ├── state.ts             # 状态定义（Annotation.Root）
+│   ├── graph.ts             # StateGraph（prompt构建 → RAG检索）
+│   ├── coach-chain.ts       # 分析/总结 LCEL 链
+│   ├── prompt-helpers.ts    # Prompt 输入构造器
+│   ├── rag-chain.ts         # RAG 检索集成
+│   ├── nodes/               # 图节点
+│   │   ├── build-prompt.ts  # Prompt 构建节点
+│   │   ├── search-kb.ts     # 知识库检索节点
+│   │   └── employee-chat.ts # LLM 流式调用
+│   └── prompts/             # ChatPromptTemplate
+│       ├── employee.ts      # 员工角色扮演
+│       ├── coach.ts         # 教练分析
+│       └── summaries.ts     # 总结报告
 ├── components/
-│   ├── ui/                  # shadcn/ui 组件（直接使用）
+│   ├── ui/                  # shadcn/ui 组件
 │   └── layout/nav.tsx       # 侧边导航
-├── lib/                     # 工具库
-│   ├── llm-client.ts        # LLM API 调用
+├── lib/
+│   ├── langchain-client.ts  # ChatOpenAI 工厂
+│   ├── llm-client.ts        # LLM API 调用（旧实现）
 │   ├── knowledge.ts         # RAG 知识检索
-│   ├── prompts.ts           # AI 提示词
+│   ├── prompts.ts           # AI 提示词（旧实现）
 │   └── employee-types.ts    # 员工角色定义
 └── storage/database/
     └── shared/schema.ts     # Drizzle ORM Schema
@@ -103,9 +134,25 @@ src/
 
 - **框架**: Next.js 16 (App Router)
 - **UI**: shadcn/ui + Tailwind CSS v4
+- **AI Agent**: LangChain + LangGraph（StateGraph 编排 Prompt 构建、RAG 检索、LLM 调用）
 - **数据库**: Supabase (PostgreSQL) + Drizzle ORM
-- **AI**: 兼容 OpenAI 格式的 LLM API
 - **包管理**: pnpm 9+
+
+## 实现版本切换
+
+项目内置两套 AI 实现，通过环境变量切换：
+
+| 值 | 实现 | 说明 |
+|----|------|------|
+| 不设置 / `true`（默认） | LangChain/LangGraph | Prompt 模板化、StateGraph 编排、RAG 链式调用 |
+| `false` | 裸 fetch + 字符串拼接 | 旧实现，保留作为降级 fallback |
+
+```env
+# 降级到旧实现
+NEXT_PUBLIC_USE_LANGGRAPH=false
+```
+
+两套实现 API 协议相同，前端无感知切换。
 
 ## 重要提示
 

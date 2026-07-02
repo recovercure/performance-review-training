@@ -1,20 +1,7 @@
+import 'dotenv/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-let envLoaded = false;
-
-function loadEnv(): void {
-  if (envLoaded) return;
-  try {
-    require('dotenv').config();
-  } catch {
-    // dotenv not available
-  }
-  envLoaded = true;
-}
-
 function getSupabaseClient(token?: string): SupabaseClient {
-  loadEnv();
-
   const url = process.env.SUPABASE_URL || process.env.COZE_SUPABASE_URL;
   const anonKey = process.env.SUPABASE_ANON_KEY || process.env.COZE_SUPABASE_ANON_KEY;
 
@@ -37,3 +24,4 @@ function getSupabaseClient(token?: string): SupabaseClient {
 }
 
 export { getSupabaseClient };
+

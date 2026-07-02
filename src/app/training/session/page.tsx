@@ -31,6 +31,8 @@ const DIMENSION_LABELS: Record<string, string> = {
   listening: "倾听共情",
 };
 
+const USE_LANGGRAPH = process.env.NEXT_PUBLIC_USE_LANGGRAPH !== "false";
+
 export default function TrainingSessionPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -65,18 +67,28 @@ export default function TrainingSessionPage() {
   messagesRef.current = messages;
 
   useEffect(() => {
-    if (sessionId) {
-      fetchSession();
-    } else {
-      setLoading(false);
-    }
-  }, [sessionId]);
-
-  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingContent]);
 
-  const fetchSession = async () => {
+  const saveMessagesToSession = async (turnMessages: ChatMessage[]) => {
+    if (!sessionId || turnMessages.length === 0) return;
+
+    const res = await fetch(`/api/sessions/${sessionId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: turnMessages.map((m) => ({
+          role: m.role === "manager" ? "user" : "assistant",
+          content: m.content,
+          step: m.step,
+        })),
+      }),
+    });
+
+    if (!res.ok) throw new Error("保存消息失败");
+  };
+
+  const fetchSession = useCallback(async () => {
     try {
       const res = await fetch(`/api/sessions/${sessionId}`);
       if (!res.ok) throw new Error("加载失败");
@@ -125,7 +137,15 @@ export default function TrainingSessionPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (sessionId) {
+      void fetchSession();
+    } else {
+      setLoading(false);
+    }
+  }, [fetchSession, sessionId]);
 
   const sendMessage = async () => {
     if (!input.trim() || streaming || !session) return;
@@ -145,7 +165,8 @@ export default function TrainingSessionPage() {
         content: m.content,
       }));
 
-      const res = await fetch("/api/chat/stream", {
+      const chatUrl = USE_LANGGRAPH ? "/api/v2/chat/stream" : "/api/chat/stream";
+      const res = await fetch(chatUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -196,6 +217,7 @@ export default function TrainingSessionPage() {
           step: currentStep,
         };
         setMessages((prev) => [...prev, employeeMsg]);
+        await saveMessagesToSession([newMessage, employeeMsg]);
       }
     } catch (err) {
       alert(err instanceof Error ? err.message : "发送失败");
@@ -221,12 +243,14 @@ export default function TrainingSessionPage() {
         return;
       }
 
-      const res = await fetch("/api/analysis", {
+      const analysisUrl = USE_LANGGRAPH ? "/api/v2/analysis" : "/api/analysis";
+      const res = await fetch(analysisUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: stepMessages,
           employeeType: session.employee_type as EmployeeType,
+          employeeName: session.employee_name,
           step: currentStep,
           ragEnabled: session.rag_enabled,
         }),
@@ -264,20 +288,10 @@ export default function TrainingSessionPage() {
     const next = currentStep + 1;
     setCurrentStep(next);
 
-    // Save all messages and update step
     await fetch(`/api/sessions/${sessionId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        current_step: next,
-        messages: messages
-          .filter((m) => m.step === currentStep)
-          .map((m) => ({
-            role: m.role === "manager" ? "user" : "assistant",
-            content: m.content,
-            step: m.step,
-          })),
-      }),
+      body: JSON.stringify({ current_step: next }),
     });
   };
 
@@ -286,21 +300,6 @@ export default function TrainingSessionPage() {
     setGeneratingSummary(true);
 
     try {
-      // Save remaining messages
-      await fetch(`/api/sessions/${sessionId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: messages
-            .filter((m) => m.step === currentStep)
-            .map((m) => ({
-              role: m.role === "manager" ? "user" : "assistant",
-              content: m.content,
-              step: m.step,
-            })),
-        }),
-      });
-
       // Calculate overall score
       const scores = Object.values(analyses).map((a) => a.score);
       const overall = scores.length > 0
@@ -308,7 +307,8 @@ export default function TrainingSessionPage() {
         : 0;
 
       // Generate summary using LLM
-      const summaryRes = await fetch("/api/analysis", {
+      const summaryUrl = USE_LANGGRAPH ? "/api/v2/analysis" : "/api/analysis";
+      const summaryRes = await fetch(summaryUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -689,7 +689,7 @@ export default function TrainingSessionPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
                 <p className="text-xs text-muted-foreground">
-                  对话后点击"实时分析"
+                  对话后点击「实时分析」
                   <br />
                   查看本阶段评分和建议
                 </p>
@@ -850,3 +850,4 @@ function SummaryModal({ summary, onClose, sessionId }: { summary: Record<string,
     </div>
   );
 }
+

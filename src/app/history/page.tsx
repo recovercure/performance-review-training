@@ -218,10 +218,6 @@ function SessionDetail({ session, detail }: { session: SessionRecord; detail: Re
   const analytics = (detail?.analytics as Array<{ step: number; score: number; highlights: string[]; improvements: string[] }>) || [];
   const summary = session.summary ? (() => { try { return JSON.parse(session.summary) as SessionSummaryData; } catch { return null; } })() : null;
 
-  const DIMENSION_LABELS: Record<string, string> = {
-    opening: "开场破冰", questioning: "提问诊断", feedback: "反馈沟通",
-    emotion: "情绪管理", goal: "目标设定", listening: "倾听共情",
-  };
 
   return (
     <div className="rounded-xl border border-border/60 bg-card p-4">
@@ -365,3 +361,4 @@ function SessionDetail({ session, detail }: { session: SessionRecord; detail: Re
     </div>
   );
 }
+
